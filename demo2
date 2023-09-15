@@ -1,0 +1,83 @@
+import cv2
+import imutils
+import pytesseract
+import numpy as np
+
+# Set the path to the Tesseract executable
+pytesseract.pytesseract.tesseract_cmd = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+
+# Read the original image and resize it to a fixed width of 500 pixels
+original_image = cv2.imread('11.jpg')
+original_image = imutils.resize(original_image, width=500)
+
+# Convert the image to grayscale and filter out noise
+gray_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+gray_image = cv2.medianBlur(gray_image, 5)
+
+# Apply adaptive thresholding to binarize the image
+thresh_image = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+
+# Find contours in the thresholded image
+contours, hierarchy = cv2.findContours(thresh_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+# Filter out non-license plate contours based on contour area and aspect ratio
+license_plate_contours = []
+for contour in contours:
+    area = cv2.contourArea(contour)
+    x, y, w, h = cv2.boundingRect(contour)
+    aspect_ratio = float(w) / h
+    if area > 1000 and aspect_ratio > 2 and aspect_ratio < 7:
+        license_plate_contours.append(contour)
+
+# Sort the license plate contours by area in descending order and keep the top 5
+license_plate_contours = sorted(license_plate_contours, key=cv2.contourArea, reverse=True)[:5]
+
+# Initialize the license plate contour
+license_plate_contour = None
+
+# Loop over each license plate contour and approximate it to a polygon
+for contour in license_plate_contours:
+    perimeter = cv2.arcLength(contour, True)
+    approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+    if len(approx) == 4:
+        license_plate_contour = approx
+        break
+
+# Get the coordinates of the license plate contour
+x, y, w, h = cv2.boundingRect(license_plate_contour)
+
+# Crop the license plate region from the original image
+license_plate_image = original_image[y:y + h, x:x + w]
+
+# Convert the license plate image to grayscale and filter out noise
+gray_plate_image = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
+gray_plate_image = cv2.bilateralFilter(gray_plate_image, 11, 17, 17)
+
+thresh_plate_image = cv2.adaptiveThreshold(gray_plate_image, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 35, 15)
+
+kernel = np.ones((3, 3), np.uint8)
+thresh_plate_image = cv2.erode(thresh_plate_image, kernel, iterations=1)
+thresh_plate_image = cv2.dilate(thresh_plate_image, kernel, iterations=1)
+
+contours, hierarchy = cv2.findContours(thresh_plate_image.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+char_contours = []
+output_string = ''
+
+for contour in contours:
+# Get the bounding box of the contour
+    x, y, w, h = cv2.boundingRect(contour)
+
+# Filter out small contours
+    if w * h < 100:
+        continue
+
+# Crop the contour region and resize it to a fixed size
+char_image = thresh_plate_image[y:y+h, x:x+w]
+char_image = cv2.resize(char_image, (30, 60))
+
+# Add the character contour and update the output string
+char_contours.append((x, char_image))
+output_string += pytesseract.image_to_string(char_image, config='--psm 10')
+
+char_contours = sorted(char_contours, key=lambda x: x[0])
